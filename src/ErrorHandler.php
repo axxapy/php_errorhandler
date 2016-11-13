@@ -1,4 +1,4 @@
-<?php namespace AXP\Core;
+<?php namespace axxapy\Core;
 
 class ErrorHandler {
 	const OUTPUT_FORMAT_AUTO = 1;
