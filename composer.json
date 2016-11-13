@@ -1,0 +1,19 @@
+{
+	"name": "axp/core/errorhandler",
+	"description": "Simple error handler with formatted output",
+	"type": "library",
+	"license": "MIT",
+	"authors": [
+		{
+			"name": "Alexey Manukhin",
+			"email": "axxapy@gmail.com"
+		}
+	],
+	"minimum-stability": "dev",
+	"require": {},
+	"autoload": {
+		"psr-4": {
+			"AXP\\Core": "src"
+		}
+	}
+}
