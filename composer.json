@@ -1,5 +1,5 @@
 {
-	"name": "axp/core/errorhandler",
+	"name": "axxapy/php_errorhandler",
 	"description": "Simple error handler with formatted output",
 	"type": "library",
 	"license": "MIT",
