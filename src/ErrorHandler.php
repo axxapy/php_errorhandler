@@ -287,6 +287,10 @@ EOL;
 		return $outbuff;
 	}
 
+	public function formatException(\Throwable $ex) {
+		return $this->prepareDebugInfo('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $msg, $ex->getTrace(), $ex->getPrevious() === null);
+	}
+
 	private function printDebug($str) {
 		if (PHP_SAPI == 'cli') {
 			fwrite(STDERR, $str);
