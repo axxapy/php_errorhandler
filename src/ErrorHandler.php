@@ -33,7 +33,7 @@ class ErrorHandler {
 	private $error_handlers = [];
 
 	public function __construct($debug_mode = false) {
-		set_exception_handler(function (/*\Throwable*/ $ex) use ($debug_mode) {
+		set_exception_handler(function (\Throwable $ex) use ($debug_mode) {
 			/** @var \Throwable $ex */
 
 			foreach ($this->exception_handlers as $Handler) {
@@ -288,7 +288,7 @@ EOL;
 	}
 
 	public function formatException(\Throwable $ex) {
-		return $this->prepareDebugInfo('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $msg, $ex->getTrace(), $ex->getPrevious() === null);
+		return $this->prepareDebugInfo('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
 	}
 
 	private function printDebug($str) {
