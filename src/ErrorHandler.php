@@ -4,6 +4,7 @@ class ErrorHandler {
 	const OUTPUT_FORMAT_AUTO = 1;
 	const OUTPUT_FORMAT_HTML = 2;
 	const OUTPUT_FORMAT_TEXT = 3;
+	const OUTPUT_FORMAT_JSON = 4;
 
 	private static $error_types = [
 		E_ERROR           => 'ERROR',      // 1 - Fatal run-time errors. These indicate errors that can not be recovered from, such as a memory allocation problem. Execution of the script is halted.
@@ -45,7 +46,7 @@ class ErrorHandler {
 			$buf = '';
 			do {
 				$msg = $ex->getMessage();
-				$buf .= $this->prepareDebugInfo('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $msg, $ex->getTrace(), $ex->getPrevious() === null);
+				$buf .= $this->format('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $msg, $ex->getTrace(), $ex->getPrevious() === null);
 			} while (($ex = $ex->getPrevious()) !== null);
 
 			$this->printDebug($buf);
@@ -64,7 +65,7 @@ class ErrorHandler {
 
 			if (!$debug_mode) return false;
 
-			$err = $this->prepareDebugInfo($type, $line, $file, $msg, debug_backtrace());
+			$err = $this->format($type, $line, $file, $msg, debug_backtrace());
 
 			if ($type & error_reporting()) {
 				$this->printDebug($err);
@@ -152,6 +153,63 @@ class ErrorHandler {
 		return $out;
 	}
 
+	private function simple_trace(array $backtrace, $shift = true) {
+		if ($shift) {
+			array_shift($backtrace);
+		}
+		$trace = [];
+		foreach ($backtrace as $i => $step) {
+			$class = '';
+			if (isset($step['class'])) {
+				$class = "{$step['class']}{$step['type']}";
+			}
+			$args = [];
+			if (isset($step['args'])) {
+				foreach ($step['args'] as $arg) {
+					$type = gettype($arg);
+					switch ($type) {
+						case 'array':
+							$args[] = "{$type}(" . count($arg) . ")";
+							break;
+						case 'integer':
+						case 'double':
+						case 'float':
+						case 'boolean':
+						case 'NULL':
+							$args[] = var_export($arg, true);
+							break;
+						case 'string':
+							if (strlen($arg) > 10) {
+								$arg = substr(trim($arg), 0, 10) . '...';
+							}
+							$args[] = "'{$arg}'";
+							break;
+						case 'object':
+							$args[] = get_class($arg);
+							break;
+						default:
+							$args[] = $type;
+							break;
+					}
+				}
+			}
+			$args      = implode(', ', $args);
+			$trace_i   = [];
+			$trace_i[] = "#{$i}";
+			if (isset($step['file'])) {
+				$filename_relative = str_replace(self::getFilesPrefix(), '.' . DIRECTORY_SEPARATOR, $step['file']);
+				$trace_i[]         = "{$filename_relative}";
+				if (isset($step['line'])) {
+					$trace_i[] = "({$step['line']}):";
+				}
+			}
+			$trace_i[] = ": {$class}{$step['function']}({$args})";
+			$trace[]   = implode(' ', $trace_i);
+		}
+		$trace = implode(PHP_EOL, $trace) . PHP_EOL;
+		return $trace;
+	}
+
 	private function getCodePart($file, $line, $surround_lines = 3) {
 		if ($file == 'Unknown' || !file_exists($file)) return false;
 		$file = file($file);
@@ -167,7 +225,7 @@ class ErrorHandler {
 		return array_combine(array_keys($array_keys), $file);
 	}
 
-	private function prepareDebugInfo4Cli($type, $line, $file, $message, $backtrace, $is_last) {
+	private function format_cli($type, $line, $file, $message, $backtrace, $is_last) {
 		$type       = self::getErrorNameByType($type);
 		$first_line = "{$type} │ {$file} : {$line}";
 
@@ -228,9 +286,11 @@ class ErrorHandler {
 		return $outbuff;
 	}
 
-	private function prepareDebugInfo($type, $line, $file, $message, $backtrace, $is_last = true) {
+	private function format($type, $line, $file, $message, $backtrace, $is_last = true) {
 		if (($this->output_format == self::OUTPUT_FORMAT_AUTO && php_sapi_name() === 'cli') || $this->output_format == self::OUTPUT_FORMAT_TEXT) {
-			return $this->prepareDebugInfo4Cli($type, $line, $file, $message, $backtrace, $is_last);
+			return $this->format_cli($type, $line, $file, $message, $backtrace, $is_last);
+		} elseif ($this->output_format == self::OUTPUT_FORMAT_JSON) {
+			return $this->format_json($type, $line, $file, $message, $backtrace);
 		}
 
 		$colors = [
@@ -287,8 +347,43 @@ EOL;
 		return $outbuff;
 	}
 
-	public function formatException(\Throwable $ex) {
-		return $this->prepareDebugInfo('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
+	public function format_json($type, $line, $file, $message, $backtrace) {
+		$message = str_replace(array("\r", "\n"), '', $message);
+		$message = substr($message, 0, 170);
+		$data = [
+			'argv' => (isset($_SERVER['argv']) && is_array($_SERVER['argv'])) ? implode(' ', $_SERVER['argv']) : '',
+			'sapi_name' => php_sapi_name(),
+			'timestamp' => date("U"),
+			'type' => $type,
+			'error' => $message,
+			'trace' => $this->simple_trace($backtrace, true),
+			'script_filename' => $file,
+			'line' => $line,
+			'GLOBALS' => array(
+				'_GET' => var_export($_GET, true),
+				'_POST' => var_export($_POST, true),
+				'_COOKIE' => var_export($_COOKIE, true),
+				'_FILES' => var_export($_FILES, true),
+				'_SERVER' => var_export($_SERVER, true),
+				'_ENV' => var_export($_ENV, true),
+				'_REQUEST' => var_export($_REQUEST, true),
+			),
+		];
+		return json_encode($data, JSON_PRETTY_PRINT);
+	}
+
+	public function formatException(\Throwable $ex, $format = self::OUTPUT_FORMAT_HTML) {
+		switch ($format) {
+			case self::OUTPUT_FORMAT_HTML:
+				return $this->format('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
+
+			case self::OUTPUT_FORMAT_TEXT:
+				error_log('AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP ');
+				return $this->format_cli('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
+
+			case self::OUTPUT_FORMAT_JSON:
+				return $this->format_json('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
+		}
 	}
 
 	private function printDebug($str) {
