@@ -33,64 +33,71 @@ class ErrorHandler {
 	/** @var array */
 	private $error_handlers = [];
 
+	private $debug_mode = false;
+
+	private $force_stderr = false;
+
 	public function __construct($debug_mode = false) {
-		set_exception_handler(function (\Throwable $ex) use ($debug_mode) {
-			/** @var \Throwable $ex */
+		$this->debug_mode = $debug_mode;
 
-			foreach ($this->exception_handlers as $Handler) {
-				call_user_func($Handler, $ex, $debug_mode);
-			}
-
+		$this->addExceptionHandler(function (\Throwable $ex, $debug_mode) {
 			if (!$debug_mode) return false;
 
-			$buf = '';
-			do {
-				$msg = $ex->getMessage();
-				$buf .= $this->format('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $msg, $ex->getTrace(), $ex->getPrevious() === null);
-			} while (($ex = $ex->getPrevious()) !== null);
+			$this->printDebug($this->formatException($ex, $this->output_format));
 
-			$this->printDebug($buf);
+			return true;
+		});
 
+		$this->addErrorHandler(function($type, $msg, $file, $line, $context, $debug_mode) {
+			if (!$debug_mode) return false;
+
+			$err = $this->format($type, $line, $file, $msg, debug_backtrace());
+
+			$this->printDebug($err);
+
+			// do not Use Built-In error handler for production.
+			return true;
+		}, error_reporting());
+
+		set_exception_handler(function (\Throwable $ex) {
+			$this->handleException($ex);
 			die(1);
 		});
 
 		set_error_handler(function ($type, $msg, $file, $line, $context) use ($debug_mode) {
 			if (!($type & error_reporting())) return true;
 
-			foreach ($this->error_handlers as $_handler) {
+			foreach (array_reverse($this->error_handlers) as $_handler) {
 				if ($type & $_handler[0]) {
-					call_user_func($_handler[1], $type, $msg, $file, $line, $context, $debug_mode);
+					if (call_user_func($_handler[1], $type, $msg, $file, $line, $context, $debug_mode) === true) return true;
 				}
 			}
 
-			if (!$debug_mode) return false;
-
-			$err = $this->format($type, $line, $file, $msg, debug_backtrace());
-
-			if ($type & error_reporting()) {
-				$this->printDebug($err);
-			}
-
-			// do not Use Built-In error handler for production.
-			return true;
+			return false;
 		}, E_ALL);
 
 		register_shutdown_function(function () use ($debug_mode) {
 			$err = error_get_last();
 			if ($err['type'] != E_ERROR) return;//catchable fatal error
 
-			foreach ($this->error_handlers as $_handler) {
+			foreach (array_reverse($this->error_handlers) as $_handler) {
 				if ($err['type'] & $_handler[0]) {
-					call_user_func($_handler[1], $err['type'], $err['message'], $err['file'], $err['line'], null, $debug_mode);
+					if (call_user_func($_handler[1], $err['type'], $err['message'], $err['file'], $err['line'], null, $debug_mode) === true) return;
 				}
 			}
-
-			if (!$debug_mode) return;
-
-			$err_msg = $this->prepareDebugInfo(E_ERROR, $err['line'], $err['file'], $err['message'], debug_backtrace());
-
-			$this->printDebug($err_msg);
 		});
+	}
+
+	public function handleException(\Throwable $ex) {
+		foreach (array_reverse($this->exception_handlers) as $Handler) {
+			if (call_user_func($Handler, $ex, $this->debug_mode) === true) return;
+		}
+		return $this;
+	}
+
+	public function setForceStderr(bool $value) {
+		$this->force_stderr = $value;
+		return $this;
 	}
 
 	/**
@@ -287,7 +294,7 @@ class ErrorHandler {
 	}
 
 	private function format($type, $line, $file, $message, $backtrace, $is_last = true) {
-		if (($this->output_format == self::OUTPUT_FORMAT_AUTO && php_sapi_name() === 'cli') || $this->output_format == self::OUTPUT_FORMAT_TEXT) {
+		if (($this->output_format == self::OUTPUT_FORMAT_AUTO && (php_sapi_name() === 'cli' || $this->force_stderr)) || $this->output_format == self::OUTPUT_FORMAT_TEXT) {
 			return $this->format_cli($type, $line, $file, $message, $backtrace, $is_last);
 		} elseif ($this->output_format == self::OUTPUT_FORMAT_JSON) {
 			return $this->format_json($type, $line, $file, $message, $backtrace);
@@ -351,34 +358,51 @@ EOL;
 		$message = str_replace(array("\r", "\n"), '', $message);
 		$message = substr($message, 0, 170);
 		$data = [
-			'argv' => (isset($_SERVER['argv']) && is_array($_SERVER['argv'])) ? implode(' ', $_SERVER['argv']) : '',
+			'argv' => mb_convert_encoding((isset($_SERVER['argv']) && is_array($_SERVER['argv'])) ? implode(' ', $_SERVER['argv']) : '', 'UTF-8', 'UTF-8'),
 			'sapi_name' => php_sapi_name(),
 			'timestamp' => date("U"),
 			'type' => $type,
-			'error' => $message,
-			'trace' => $this->simple_trace($backtrace, true),
+			'error' => mb_convert_encoding($message, 'UTF-8', 'UTF-8'),
+			'trace' => mb_convert_encoding($this->simple_trace($backtrace, true), 'UTF-8', 'UTF-8'),
 			'script_filename' => $file,
 			'line' => $line,
 			'GLOBALS' => array(
-				'_GET' => var_export($_GET, true),
-				'_POST' => var_export($_POST, true),
-				'_COOKIE' => var_export($_COOKIE, true),
-				'_FILES' => var_export($_FILES, true),
-				'_SERVER' => var_export($_SERVER, true),
-				'_ENV' => var_export($_ENV, true),
-				'_REQUEST' => var_export($_REQUEST, true),
+				'_GET' => mb_convert_encoding(var_export($_GET, true), 'UTF-8', 'UTF-8'),
+				'_POST' => mb_convert_encoding(var_export($_POST, true), 'UTF-8', 'UTF-8'),
+				'_COOKIE' => mb_convert_encoding(var_export($_COOKIE, true), 'UTF-8', 'UTF-8'),
+				'_FILES' => mb_convert_encoding(var_export($_FILES, true), 'UTF-8', 'UTF-8'),
+				'_SERVER' => mb_convert_encoding(var_export($_SERVER, true), 'UTF-8', 'UTF-8'),
+				'_ENV' => mb_convert_encoding(var_export($_ENV, true), 'UTF-8', 'UTF-8'),
+				'_REQUEST' => mb_convert_encoding(var_export($_REQUEST, true), 'UTF-8', 'UTF-8'),
 			),
 		];
+
 		return json_encode($data);
 	}
 
 	public function formatException(\Throwable $ex, $format = self::OUTPUT_FORMAT_HTML) {
 		switch ($format) {
+			case self::OUTPUT_FORMAT_AUTO:
+				if ($this->output_format == self::OUTPUT_FORMAT_AUTO && (php_sapi_name() === 'cli' || $this->force_stderr)) {
+					return $this->formatException($ex, self::OUTPUT_FORMAT_TEXT);
+				}
+				return $this->formatException($ex, self::OUTPUT_FORMAT_HTML);
+
 			case self::OUTPUT_FORMAT_HTML:
-				return $this->format('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
+				$buf = '';
+				do {
+					$msg = $ex->getMessage();
+					$buf .= $this->format('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $msg, $ex->getTrace(), $ex->getPrevious() === null);
+				} while (($ex = $ex->getPrevious()) !== null);
+				return $buf;
 
 			case self::OUTPUT_FORMAT_TEXT:
-				return $this->format_cli('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
+				$buf = '';
+				do {
+					$msg = $ex->getMessage();
+					$buf .= $this->format_cli('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $msg, $ex->getTrace(), $ex->getPrevious() === null);
+				} while (($ex = $ex->getPrevious()) !== null);
+				return $buf;
 
 			case self::OUTPUT_FORMAT_JSON:
 				return $this->format_json('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
@@ -386,7 +410,7 @@ EOL;
 	}
 
 	private function printDebug($str) {
-		if (PHP_SAPI == 'cli') {
+		if (PHP_SAPI == 'cli' || $this->force_stderr) {
 			fwrite(STDERR, $str);
 		} else {
 			echo $str;
