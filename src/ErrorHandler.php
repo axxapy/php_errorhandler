@@ -378,7 +378,6 @@ EOL;
 				return $this->format('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
 
 			case self::OUTPUT_FORMAT_TEXT:
-				error_log('AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP AXP ');
 				return $this->format_cli('[' . $ex->getCode() . '] ' . get_class($ex), $ex->getLine(), $ex->getFile(), $ex->getMessage(), $ex->getTrace(), $ex->getPrevious() === null);
 
 			case self::OUTPUT_FORMAT_JSON:
