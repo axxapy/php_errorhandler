@@ -197,7 +197,7 @@ class ErrorHandler {
 			$trace_i   = [];
 			$trace_i[] = "#{$i}";
 			if (isset($step['file'])) {
-				$filename_relative = str_replace(self::getFilesPrefix(), '.' . DIRECTORY_SEPARATOR, $step['file']);
+				$filename_relative = $step['file'];//str_replace(self::getFilesPrefix(), '.' . DIRECTORY_SEPARATOR, $step['file']);
 				$trace_i[]         = "{$filename_relative}";
 				if (isset($step['line'])) {
 					$trace_i[] = "({$step['line']}):";
