@@ -411,6 +411,7 @@ EOL;
 
 	private function printDebug($str) {
 		if (PHP_SAPI == 'cli' || $this->force_stderr) {
+			defined('STDERR') || define('STDERR', fopen('php://stderr', 'w'));
 			fwrite(STDERR, $str);
 		} else {
 			echo $str;
