@@ -369,7 +369,7 @@ EOL;
 				'_REQUEST' => var_export($_REQUEST, true),
 			),
 		];
-		return json_encode($data, JSON_PRETTY_PRINT);
+		return json_encode($data);
 	}
 
 	public function formatException(\Throwable $ex, $format = self::OUTPUT_FORMAT_HTML) {
