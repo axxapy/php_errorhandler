@@ -6,6 +6,8 @@ class ErrorHandler {
 	const OUTPUT_FORMAT_TEXT = 3;
 	const OUTPUT_FORMAT_JSON = 4;
 
+	const E_JSERROR = 32768 | E_ERROR;
+
 	private static $error_types = [
 		E_ERROR           => 'ERROR',      // 1 - Fatal run-time errors. These indicate errors that can not be recovered from, such as a memory allocation problem. Execution of the script is halted.
 		E_WARNING         => 'WARNING',    // 2 - Run-time warnings (non-fatal errors). Execution of the script is not halted.
@@ -21,6 +23,7 @@ class ErrorHandler {
 		E_STRICT          => 'STRICT',     // 2048 - Enable to have PHP suggest changes to your code which will ensure the best interoperability and forward compatibility of your code.
 		E_DEPRECATED      => 'DEPRECATED', // 8192 - Run-time notices. Enable this to receive warnings about code that will not work in future versions.
 		E_USER_DEPRECATED => 'DEPRECATED', // 16384 - User-generated warning message. This is like an E_DEPRECATED, except it is generated in PHP code by using the PHP function trigger_error().
+		self::E_JSERROR   => 'JAVASCRIPT',
 	];
 
 	private $opened_draw_count = 0;
@@ -48,7 +51,7 @@ class ErrorHandler {
 			return true;
 		});
 
-		$this->addErrorHandler(function($type, $msg, $file, $line, $context, $debug_mode) {
+		$this->addErrorHandler(function ($type, $msg, $file, $line, $context, $debug_mode) {
 			if (!$debug_mode) return false;
 
 			$err = $this->format($type, $line, $file, $msg, debug_backtrace());
@@ -65,14 +68,14 @@ class ErrorHandler {
 		});
 
 		set_error_handler(function ($type, $msg, $file, $line, $context) use ($debug_mode) {
-			if (!($type & error_reporting())) return true;
+			$this->handleError($type, $msg, $file, $line);
+			/*if (!($type & error_reporting())) return true;
 
 			foreach (array_reverse($this->error_handlers) as $_handler) {
 				if ($type & $_handler[0]) {
 					if (call_user_func($_handler[1], $type, $msg, $file, $line, $context, $debug_mode) === true) return true;
 				}
-			}
-
+			}*/
 			return false;
 		}, E_ALL);
 
@@ -93,6 +96,16 @@ class ErrorHandler {
 			if (call_user_func($Handler, $ex, $this->debug_mode) === true) return;
 		}
 		return $this;
+	}
+
+	public function handleError($type, $message, $file, $line) {
+		if (!($type & error_reporting())) return true;
+
+		foreach (array_reverse($this->error_handlers) as $_handler) {
+			if ($type & $_handler[0]) {
+				if (call_user_func($_handler[1], $type, $message, $file, $line, null, $this->debug_mode) === true) return;
+			}
+		}
 	}
 
 	public function setForceStderr(bool $value) {
@@ -257,16 +270,16 @@ class ErrorHandler {
 
 		$first     = $left_top_angle . str_repeat('─', strlen($type) + 2) . '┬';
 		$rest_line = str_repeat('─', $size_max - strlen($type) - 1);
-		$outbuff .= $first . $rest_line . $right_top_angle . "\n";
-		$outbuff .= '│ ' . $first_line . str_repeat(' ', $size_max - strlen($first_line) + 3) . "│\n";
-		$outbuff .= '├' . str_repeat('─', strlen($type) + 2) . '┴' . $rest_line . "┤\n";
+		$outbuff   .= $first . $rest_line . $right_top_angle . "\n";
+		$outbuff   .= '│ ' . $first_line . str_repeat(' ', $size_max - strlen($first_line) + 3) . "│\n";
+		$outbuff   .= '├' . str_repeat('─', strlen($type) + 2) . '┴' . $rest_line . "┤\n";
 
 		foreach ($message as $str) {
 			$outbuff .= "│ {$str}" . str_repeat(' ', $size_max - strlen($str)) . " │\n";
 		}
 
 		if ($code) {
-			$outbuff .= "├{$hor_line}┘\n";
+			$outbuff    .= "├{$hor_line}┘\n";
 			$lines_size = max(array_map('strlen', array_keys($code)));
 			$pointer    = str_repeat('>', $lines_size);
 			foreach ($code as $line_num => $line_code) {
@@ -283,7 +296,7 @@ class ErrorHandler {
 
 		$outbuff .= "│ " . implode(" │\n│ ", $trace) . " │\n";
 		if ($is_last) {
-			$outbuff .= "└{$hor_line}┘\n";
+			$outbuff                 .= "└{$hor_line}┘\n";
 			$this->opened_draw_count = 0;
 		} else {
 			$outbuff .= "├{$hor_line}┤\n";
@@ -355,26 +368,26 @@ EOL;
 	}
 
 	public function format_json($type, $line, $file, $message, $backtrace) {
-		$message = str_replace(array("\r", "\n"), '', $message);
+		$message = str_replace(["\r", "\n"], '', $message);
 		$message = substr($message, 0, 170);
-		$data = [
-			'argv' => mb_convert_encoding((isset($_SERVER['argv']) && is_array($_SERVER['argv'])) ? implode(' ', $_SERVER['argv']) : '', 'UTF-8', 'UTF-8'),
-			'sapi_name' => php_sapi_name(),
-			'timestamp' => date("U"),
-			'type' => $type,
-			'error' => mb_convert_encoding($message, 'UTF-8', 'UTF-8'),
-			'trace' => mb_convert_encoding($this->simple_trace($backtrace, true), 'UTF-8', 'UTF-8'),
+		$data    = [
+			'argv'            => mb_convert_encoding((isset($_SERVER['argv']) && is_array($_SERVER['argv'])) ? implode(' ', $_SERVER['argv']) : '', 'UTF-8', 'UTF-8'),
+			'sapi_name'       => php_sapi_name(),
+			'timestamp'       => date("U"),
+			'type'            => $type,
+			'error'           => mb_convert_encoding($message, 'UTF-8', 'UTF-8'),
+			'trace'           => mb_convert_encoding($this->simple_trace($backtrace, true), 'UTF-8', 'UTF-8'),
 			'script_filename' => $file,
-			'line' => $line,
-			'GLOBALS' => array(
-				'_GET' => mb_convert_encoding(var_export($_GET, true), 'UTF-8', 'UTF-8'),
-				'_POST' => mb_convert_encoding(var_export($_POST, true), 'UTF-8', 'UTF-8'),
-				'_COOKIE' => mb_convert_encoding(var_export($_COOKIE, true), 'UTF-8', 'UTF-8'),
-				'_FILES' => mb_convert_encoding(var_export($_FILES, true), 'UTF-8', 'UTF-8'),
-				'_SERVER' => mb_convert_encoding(var_export($_SERVER, true), 'UTF-8', 'UTF-8'),
-				'_ENV' => mb_convert_encoding(var_export($_ENV, true), 'UTF-8', 'UTF-8'),
+			'line'            => $line,
+			'GLOBALS'         => [
+				'_GET'     => mb_convert_encoding(var_export($_GET, true), 'UTF-8', 'UTF-8'),
+				'_POST'    => mb_convert_encoding(var_export($_POST, true), 'UTF-8', 'UTF-8'),
+				'_COOKIE'  => mb_convert_encoding(var_export($_COOKIE, true), 'UTF-8', 'UTF-8'),
+				'_FILES'   => mb_convert_encoding(var_export($_FILES, true), 'UTF-8', 'UTF-8'),
+				'_SERVER'  => mb_convert_encoding(var_export($_SERVER, true), 'UTF-8', 'UTF-8'),
+				'_ENV'     => mb_convert_encoding(var_export($_ENV, true), 'UTF-8', 'UTF-8'),
 				'_REQUEST' => mb_convert_encoding(var_export($_REQUEST, true), 'UTF-8', 'UTF-8'),
-			),
+			],
 		];
 
 		return json_encode($data);
